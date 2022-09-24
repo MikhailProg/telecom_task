@@ -1,6 +1,6 @@
 Here is a test task that an interviewee needs to accomplish as a part of a job
 interview. This task is from a company which produces telecom equipment.
-I've found its quite chalanging that is why I publish the task and my solution.
+I've found its quite challenging that is why I publish the task and my solution.
 
 ## Test task
 
@@ -32,12 +32,18 @@ The network address is such attribute.
 A sensor can be in several states: UNKNOWN, MASTER, SLAVE.
 
 UNKNOWN - needs to detect the role (MASTER or SLAVE)
+
 SLAVE - polled by MASTER
+
 MASTER - poll other sensors
 
+
 Use 3 network packet types:
+
 HELLO - something like echo, detect other host reachability
+
 SET - set an averaged temperature and a text message
+
 GET - get the current temperature and brightness
 
 At a start time or at a time when the lost of a controller is detected each
