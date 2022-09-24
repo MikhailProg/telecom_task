@@ -6,8 +6,8 @@
 /* Timeout to polling sensors. */
 #define	DEVICE_MASTER_TIMEOUT	2
 /* Timeout for waiting a request from a controller. */
-#define DEVICE_SLAVE_TIMEOUT	(3 * DEVICE_MASTER_TIMEOUT)	
-#define DEVICE_HOST_MAX		256
+#define DEVICE_SLAVE_TIMEOUT	(3 * DEVICE_MASTER_TIMEOUT)
+#define DEVICE_HOST_ADDR_MAX	255
 
 typedef struct peer Peer;
 
@@ -45,4 +45,4 @@ void device_deinit(Device *dev);
 
 void device_next_step(Device *dev);
 
-#endif 
+#endif

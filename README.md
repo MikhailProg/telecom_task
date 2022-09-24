@@ -75,6 +75,7 @@ network can have several controllers.
 ## Run
 
 ```
+$ cd src
 $ make
 ```
 
@@ -86,10 +87,10 @@ $ ./run.sh
 ```
 
 
-Run a controller (address X should be different from what run.sh generated):
+Run a controller (address X must be different from what run.sh generated):
 
 ```
-$ HOST_NUM=X CONTROLLER= ./prog
+$ HOST_ADDR=X CONTROLLER= ./prog
 ```
 
 Run watch to check prog states:

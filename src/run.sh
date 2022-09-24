@@ -2,17 +2,17 @@
 
 set -e
 
-NUMS=""
+ADDRS=""
 
 for i in $(seq 5); do
     while :; do
         # gen 0 - 255
-        NUM=$(od -An -N1 -i /dev/random)
-        echo "${NUMS}" | grep -qw "${NUM}" || break 
+        ADDR=$(od -An -N1 -i /dev/random)
+        echo "${ADDRS}" | grep -qw "${ADDR}" || break
     done
 
-    NUMS="${NUMS} ${NUM}"
-    HOST_NUM=$((NUM+1)) ./prog &
+    ADDRS="${ADDRS} ${ADDR}"
+    HOST_ADDR=$[ADDR] ./prog &
 done
 
 wait

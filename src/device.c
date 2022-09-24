@@ -28,6 +28,8 @@
 #define PARAM_BRGHT	3	/* 2 bytes */
 #define PARAM_MAX	4
 
+#define SOFT_ERROR		(errno == EINTR || errno == EAGAIN || \
+				 errno == EWOULDBLOCK)
 enum {
 	DEV_STATE_UNKNOWN = 0,
 	DEV_STATE_CONTROLLER,
@@ -67,7 +69,7 @@ static Peer *peer_alloc(int fd, Device *dev)
 	p->size = PEER_BUF_SIZE;
 	p->dev = dev;
 
-	return p;	
+	return p;
 }
 
 static void peer_dealloc(Peer *p)
@@ -157,7 +159,7 @@ static int peer_get_req_recv(Peer *p)
 	};
 #undef GEN_XXX
 	int i;
-	
+
 	warnx("RECV GET as slave");
 
 	for (i = 0; i < (int)ARRSZ(val); i++) {
@@ -178,7 +180,7 @@ static int peer_set_req_recv(Peer *p)
 	Device *dev = p->dev;
 	unsigned char *q = p->buf;
 	size_t n = p->off;
-	
+
 	struct {
 		union {
 			uint16_t val;
@@ -206,7 +208,7 @@ static int peer_set_req_recv(Peer *p)
 	}
 
 	assert(n == len);
-	
+
 	memset(&params, 0, sizeof(params));
 	unsigned char *e = q + len - 3;
 
@@ -245,7 +247,7 @@ static int peer_set_req_recv(Peer *p)
 	dev->display(dev, " [ %s %u ] brigtness: %u, message: \"%s\"",
 			device_state2name(dev) , dev->host,
 			params[PARAM_BRGHT].val, params[PARAM_TEXT].str);
-				
+
 	peer_close(p);
 	return 0;
 }
@@ -272,9 +274,9 @@ static int peer_msg_req_recv(Peer *p)
 	}
 
 	if (rc < 0) {
-		return rc;	
+		return rc;
 	}
-	
+
 	/* HELLO is echoed and doesn't influence on the state. */
 	if (type == MSG_HELLO) {
 		return 0;
@@ -339,9 +341,9 @@ static void peer_rdwr_event(int fd, LoopEvent event, void *opaque)
 			}
 		}
 	}
-	
+
 	return;
-	
+
 drop:
 	if (p->on_drop) {
 		p->on_drop(p, eof);
@@ -409,29 +411,9 @@ static int device_params_put(Device *dev, uint16_t temp, uint16_t brgth)
 	return 0;
 }
 
-static int fd_check_conn(int fd)
+static int peer_check_connection(const Peer *p)
 {
-	int err = 0;
-	socklen_t elen = sizeof(err);
-
-	if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &elen) < 0) {
-		err = errno;
-		warn("getsockopt");
-	} else if (err) {
-		errno = err;
-		warn("connect (deferred)");
-	} else {
-#if 0
-		warnx("fd=%d connected", fd);
-#endif
-	}
-
-	return err ? 0 : 1;
-}
-
-static int peer_check_conn(const Peer *p)
-{
-	return fd_check_conn(p->fd);
+	return fd_check_sock_connection(p->fd);
 }
 
 static void peer_get_req_send(Peer *p)
@@ -448,7 +430,7 @@ static void peer_set_req_send(Peer *p, const char *msg,
 
 	/* n must includes 0 */
 	n = n > p->size - 7 ? p->size - 7 : n;
- 	uint16_t len = 1 + 2 + 1 + n + 1 + 2;
+	uint16_t len = 1 + 2 + 1 + n + 1 + 2;
 
 	*q++ = MSG_SET;
 	put_u16(q, len);
@@ -504,7 +486,7 @@ static int peer_get_resp_recv(Peer *p)
 	Device *dev = p->dev;
 	unsigned char *q = p->buf;
 	size_t n = p->off;
-	
+
 	struct {
 		uint16_t val;
 		int	 upd;
@@ -536,7 +518,7 @@ static int peer_get_resp_recv(Peer *p)
 
 	memset(&params, 0, sizeof(params));
 	unsigned char *e = q + len - 3;
-	
+
 	while (q < e) {
 		unsigned char type = *q++;
 		switch (type) {
@@ -607,7 +589,7 @@ device_connect_range(Device *dev, const Range *range, int excl,
 		/* Add special handler to remove from list in case of failure. */
 		p->on_drop = peer_on_drop;
 		list_prepend((struct list **)&dev->head, (struct list *)p);
-		
+
 		loop_fd_add(p->fd, LOOP_WR, on_connect, p);
 	}
 }
@@ -622,7 +604,7 @@ peer_master_or_slave_on_connect(int fd, LoopEvent event, void *opaque)
 	(void)event;
 
 	/* If connection was success send hello request. */
-	if (peer_check_conn(p)) {
+	if (peer_check_connection(p)) {
 		loop_fd_del(fd);
 		p->on_in  = peer_hello_resp_recv;
 		p->on_out = peer_rd_after_wr;
@@ -642,7 +624,7 @@ static void device_master_or_slave(Device *dev)
 {
 	/* Connect to addresses that are greater to detect the device role. */
 	const Range range = {
-		dev->host + 1, DEVICE_HOST_MAX
+		dev->host + 1, DEVICE_HOST_ADDR_MAX
 	};
 
 	device_connect_range(dev, &range, -1, peer_master_or_slave_on_connect);
@@ -660,7 +642,7 @@ static void peer_poll(Peer *p)
 
 	/* send set request every 3 cycles */
 	if (dev->poll_cycles % 3 == 0) {
-		peer_set_req_send(p, dev->net_msg, dev->net_msg_len, 
+		peer_set_req_send(p, dev->net_msg, dev->net_msg_len,
 					dev->param_avg.brgth);
 	} else {
 		peer_get_req_send(p);
@@ -674,7 +656,7 @@ static void peer_poll_on_connect(int fd, LoopEvent event, void *opaque)
 
 	(void)event;
 
-	if (peer_check_conn(p)) {
+	if (peer_check_connection(p)) {
 		loop_fd_del(fd);
 		p->on_in  = peer_get_resp_recv;
 		p->on_out = peer_rd_after_wr;
@@ -689,11 +671,11 @@ static void peer_poll_on_connect(int fd, LoopEvent event, void *opaque)
 static void device_net_msg_set(Device *dev)
 {
 	char date[128];
-	struct tm *tm; 
-	time_t t; 
-	
-	time(&t); 
-	tm = localtime(&t); 
+	struct tm *tm;
+	time_t t;
+
+	time(&t);
+	tm = localtime(&t);
 
 	strftime(date, sizeof(date), "%a %b %d %R", tm);
 	dev->net_msg_len = 1 + snprintf(dev->net_msg, sizeof(dev->net_msg),
@@ -736,11 +718,12 @@ static void device_poll_sensors(Device *dev)
 	++dev->poll_cycles;
 	/* Calculate averages from the previous cycle. */
 	device_param_avg_calc(dev);
-	
+
 	/* The controller polls all hosts exluding itself.
 	 * The master polls hosts which addresses are less. */
 	Range range = {
-		1, device_is_controller(dev) ? DEVICE_HOST_MAX : dev->host - 1
+		1, device_is_controller(dev) ?
+			DEVICE_HOST_ADDR_MAX : dev->host - 1
 	};
 	int excl = device_is_controller(dev) ? dev->host : -1;
 
@@ -787,7 +770,7 @@ static void device_on_timeout(Device *dev)
 	default:
 		abort();
 	}
-}	
+}
 
 int device_init(Device *dev, int host, int is_controller)
 {

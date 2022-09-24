@@ -12,7 +12,7 @@ inline static void list_prepend(struct list **head, struct list *list)
 	list->next = *head;
 	if (*head)
 		(*head)->prev = list;
-	*head = list;	
+	*head = list;
 }
 
 inline static void list_remove(struct list **head, struct list *list)
@@ -21,7 +21,7 @@ inline static void list_remove(struct list **head, struct list *list)
 		list->prev->next = list->next;
 	if (list->next != NULL)
 		list->next->prev = list->prev;
-	
+
 	/* List is a head. */
 	if (list->prev == NULL) {
 		assert(list == *head);

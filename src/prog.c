@@ -18,9 +18,10 @@ static int signals[NSIG];
 
 static void env_opts_parse(int *host, int *is_controller)
 {
-	char *s = getenv("HOST_NUM");
-	if (s == NULL || (*host = atoi(s)) <= 0 || *host > DEVICE_HOST_MAX) {
-		errx(EXIT_FAILURE, "provide HOST_NUM variable [1, %d]", DEVICE_HOST_MAX);
+	char *s = getenv("HOST_ADDR");
+	if (s == NULL || (*host = atoi(s)) < 0 || *host > DEVICE_HOST_ADDR_MAX) {
+		errx(EXIT_FAILURE, "provide HOST_ADDR variable [0, %d]",
+							DEVICE_HOST_ADDR_MAX);
 	}
 
 	*is_controller = 0;
@@ -109,7 +110,7 @@ static void resched_timer(struct device *dev, int secs)
 static void display(struct device *dev, const char *fmt, ...)
 {
 	va_list ap;
-	
+
 	(void)dev;
 	va_start(ap, fmt);
 	proctitle_vset(fmt, ap);
@@ -121,18 +122,18 @@ int main(int argc, char *argv[], char *envp[])
 	int host, is_controller;
 
 	(void)argc;
-	
+
 	srand(time(NULL));
 	proctitle_init(argv, envp);
 	env_opts_parse(&host, &is_controller);
-		
+
 	if (loop_init(LOOP_DRV_DEFAULT) < 0) {
 		errx(EXIT_FAILURE, "loop_init() failed");
 	}
 
 	siginit();
 	if (device_init(&device, host, is_controller) < 0) {
-		errx(EXIT_FAILURE, "device_init() failed");	
+		errx(EXIT_FAILURE, "device_init() failed");
 	}
 
 	device.resched_timer = resched_timer;
