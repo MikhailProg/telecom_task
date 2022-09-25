@@ -24,10 +24,7 @@ static void env_opts_parse(int *host, int *is_controller)
 							DEVICE_HOST_ADDR_MAX);
 	}
 
-	*is_controller = 0;
-	if (getenv("CONTROLLER") != NULL) {
-		*is_controller = 1;
-	}
+	*is_controller = getenv("CONTROLLER") ? 1 : 0;
 }
 
 static void sig_event(int fd, LoopEvent event, void *opaque)
