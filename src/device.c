@@ -57,6 +57,8 @@ struct range {
 
 typedef struct range Range;
 
+static void device_next_step(Device *dev);
+
 static Peer *peer_alloc(int fd, Device *dev)
 {
 	Peer *p = calloc(1, sizeof(*p) + PEER_BUF_SIZE);
@@ -733,7 +735,7 @@ static void device_poll_sensors(Device *dev)
 	dev->resched_timer(dev, DEVICE_MASTER_TIMEOUT);
 }
 
-void device_next_step(Device *dev)
+static void device_next_step(Device *dev)
 {
 	switch (dev->state) {
 	case DEV_STATE_UNKNOWN:
@@ -801,6 +803,11 @@ int device_init(Device *dev, int host, int is_controller)
 	}
 
 	return 0;
+}
+
+void device_start(Device *dev)
+{
+	device_next_step(dev);
 }
 
 void device_deinit(Device *dev)

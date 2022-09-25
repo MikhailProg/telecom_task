@@ -138,7 +138,7 @@ int main(int argc, char *argv[], char *envp[])
 
 	device.resched_timer = resched_timer;
 	device.display = display;
-	device_next_step(&device);
+	device_start(&device);
 
 	loop_run();
 

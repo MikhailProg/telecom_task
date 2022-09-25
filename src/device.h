@@ -41,8 +41,8 @@ struct device {
 
 int device_init(Device *dev, int host, int is_controller);
 
-void device_deinit(Device *dev);
+void device_start(Device *dev);
 
-void device_next_step(Device *dev);
+void device_deinit(Device *dev);
 
 #endif
