@@ -12,7 +12,7 @@ for i in $(seq 5); do
     done
 
     ADDRS="${ADDRS} ${ADDR}"
-    HOST_ADDR=$[ADDR] ./prog &
+    HOST_ADDR=${ADDR} ./prog &
 done
 
 wait
