@@ -766,7 +766,7 @@ static void device_poll_sensors(Device *dev)
 
 	/* The controller polls all hosts exluding itself.
 	 * The master polls hosts which addresses are less. */
-	Range range = {
+	const Range range = {
 		1, device_is_controller(dev) ?
 			DEVICE_HOST_ADDR_MAX : dev->host - 1
 	};
