@@ -42,7 +42,7 @@ static void sig_event(int fd, LoopEvent event, void *opaque)
 
 	if (signals[SIGALRM]) {
 		signals[SIGALRM] = 0;
-		device.on_timeout(&device);
+		device_timeout(&device);
 	}
 
 	if (signals[SIGTERM] || signals[SIGINT]) {
@@ -96,7 +96,7 @@ static void sigdeinit(void)
 	close(sigpipe[1]);
 }
 
-static void resched_timer(struct device *dev, int secs)
+static void resched_timer(Device *dev, int secs)
 {
 	(void)dev;
 	/* Forget current timeout, we are not interested in it anymore. */
@@ -104,7 +104,7 @@ static void resched_timer(struct device *dev, int secs)
 	alarm(secs);
 }
 
-static void display(struct device *dev, const char *fmt, ...)
+static void display(Device *dev, const char *fmt, ...)
 {
 	va_list ap;
 
@@ -129,12 +129,14 @@ int main(int argc, char *argv[], char *envp[])
 	}
 
 	siginit();
-	if (device_init(&device, host, is_controller) < 0) {
+	const DeviceOps ops = {
+		display, resched_timer
+	};
+
+	if (device_init(&device, host, is_controller, &ops) < 0) {
 		errx(EXIT_FAILURE, "device_init() failed");
 	}
 
-	device.resched_timer = resched_timer;
-	device.display = display;
 	device_start(&device);
 
 	loop_run();

@@ -102,7 +102,7 @@ $ HOST_ADDR=X CONTROLLER= ./prog
 Run watch to check prog states:
 
 ```
-$ watch -n 1 "ps -eo cmd | grep '[p]rog.*\(SLAVE\|MASTER\|CONTR\)'"
+$ watch -n 1 "ps -eo pid,cmd | grep '[p]rog.*\(SLAVE\|MASTER\|CONTR\)'"
 ```
 
 The state of each program is outputted to cmd. This is sensors output device

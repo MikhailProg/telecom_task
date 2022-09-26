@@ -9,17 +9,23 @@
 #define DEVICE_SLAVE_TIMEOUT	(3 * DEVICE_MASTER_TIMEOUT)
 #define DEVICE_HOST_ADDR_MAX	255
 
-typedef struct peer Peer;
+typedef struct Peer Peer;
+typedef struct Param Param;
+typedef struct Device Device;
+typedef struct DeviceOps DeviceOps;
 
-struct param {
+struct Param {
 	uint16_t	temp;
 	uint16_t	brgth;
 };
 
-typedef struct param Param;
-typedef struct device Device;
+struct DeviceOps {
+	void	(*display)(Device *dev, const char *fmt, ...)
+				__attribute__ ((format (printf, 2, 3)));
+	void	(*resched_timer)(Device *dev, int secs);
+};
 
-struct device {
+struct Device {
 	int	state;
 	int	host;		/* host addr */
 	int	fd;		/* srv fd to accept connection */
@@ -31,17 +37,15 @@ struct device {
 	char	net_msg[64];	/* master message to send to other devices */
 	int	net_msg_len;	/* cached net_msg length */
 	int	poll_cycles;
-
-	void	(*display)(Device *dev, const char *fmt, ...)
-				__attribute__ ((format (printf, 2, 3)));
-	void	(*resched_timer)(Device *dev, int secs);
-	void	(*on_timeout)(Device *dev);
+	const DeviceOps *ops;
 };
 
 
-int device_init(Device *dev, int host, int is_controller);
+int device_init(Device *dev, int host, int is_controller, const DeviceOps *ops);
 
 void device_start(Device *dev);
+
+void device_timeout(Device *dev);
 
 void device_deinit(Device *dev);
 

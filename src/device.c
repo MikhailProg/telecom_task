@@ -37,7 +37,15 @@ enum {
 	DEV_STATE_SLAVE,
 };
 
-struct peer {
+typedef struct PeerVtable PeerVtable;
+
+struct PeerVtable {
+	int		(*on_in)(Peer *p);
+	int		(*on_out)(Peer *p);
+	void		(*on_drop)(Peer *p, int eof);
+};
+
+struct Peer {
 	struct list	list;
 	Device		*dev;	/* point to its device */
 	int		fd;
@@ -45,9 +53,7 @@ struct peer {
 	size_t		size;	/* buf size */
 	size_t		off;	/* offset in buf for rd/wr */
 	size_t		left;	/* left bytes for wr */
-	int		(*on_in)(Peer *p);
-	int		(*on_out)(Peer *p);
-	void		(*on_drop)(Peer *p, int eof);
+	const PeerVtable *v;
 };
 
 struct range {
@@ -58,6 +64,7 @@ struct range {
 typedef struct range Range;
 
 static void device_next_step(Device *dev);
+static void device_master_resolve(Device *dev);
 
 static Peer *peer_alloc(int fd, Device *dev)
 {
@@ -84,6 +91,11 @@ static void peer_close(Peer *p)
 	loop_fd_del(p->fd);
 	close(p->fd);
 	peer_dealloc(p);
+}
+
+static void peer_vtable_set(Peer *p, const PeerVtable *v)
+{
+	p->v = v;
 }
 
 static const char *device_state2name(const Device *dev)
@@ -117,6 +129,14 @@ static void device_drop_peers(Device *dev)
 	list_foreach((struct list *)dev->head, (void *)peer_close, NULL);
 	dev->head = NULL;
 }
+
+
+static void device_drop_peer(Device *dev, Peer *p)
+{
+	list_remove((struct list **)&dev->head, (struct list *)p);
+	peer_close(p);
+}
+
 
 static uint16_t get_u16(uint8_t *p)
 {
@@ -246,7 +266,7 @@ static int peer_set_req_recv(Peer *p)
 
 	warnx("RECV SET as slave: brigtness: %u, message: \"%s\"",
 			params[PARAM_BRGHT].val, params[PARAM_TEXT].str);
-	dev->display(dev, " [ %s %u ] brigtness: %u, message: \"%s\"",
+	dev->ops->display(dev, " [ %s %u ] brigtness: %u, message: \"%s\"",
 			device_state2name(dev) , dev->host,
 			params[PARAM_BRGHT].val, params[PARAM_TEXT].str);
 
@@ -284,16 +304,17 @@ static int peer_msg_req_recv(Peer *p)
 		return 0;
 	}
 
-	/* In unkown and master states the device can poll sensors, since someone
-	 * polls us the device is a slave so stop polling. */
-	if (device_is_polling_inprogress(dev)) {
-		device_drop_peers(dev);
-	}
-
 	if (dev->state != DEV_STATE_SLAVE) {
+		/* In unknown and master states the device can poll sensors,
+		 * since someone polls us the device is a slave stop polling */
+		if (device_is_polling_inprogress(dev)) {
+			device_drop_peers(dev);
+		}
+
 		warnx("%s -> SLAVE", device_state2name(dev));
 		dev->state = DEV_STATE_SLAVE;
-		dev->display(dev, " [ %s %u ]", device_state2name(dev), dev->host);
+		dev->ops->display(dev, " [ %s %u ]",
+				device_state2name(dev), dev->host);
 	}
 
 	assert(dev->state == DEV_STATE_SLAVE);
@@ -320,7 +341,7 @@ static void peer_rdwr_event(int fd, LoopEvent event, void *opaque)
 			}
 		} else {
 			p->off += n;
-			if (p->on_in(p) < 0) {
+			if (p->v->on_in(p) < 0) {
 				goto drop;
 			}
 		}
@@ -334,10 +355,10 @@ static void peer_rdwr_event(int fd, LoopEvent event, void *opaque)
 			p->off  += n;
 			p->left -= n;
 			if (!p->left) {
-				if (p->on_out == NULL) {
+				if (p->v->on_out == NULL) {
 					goto drop;
 				}
-				if (p->on_out(p) < 0) {
+				if (p->v->on_out(p) < 0) {
 					goto drop;
 				}
 			}
@@ -347,11 +368,31 @@ static void peer_rdwr_event(int fd, LoopEvent event, void *opaque)
 	return;
 
 drop:
-	if (p->on_drop) {
-		p->on_drop(p, eof);
-	} else {
-		peer_close(p);
-	}
+	p->v->on_drop(p, eof);
+}
+
+static void peer_on_poll_drop(Peer *p, int eof)
+{
+	Device *dev = p->dev;
+	(void)eof;
+	assert(dev->state == DEV_STATE_MASTER ||
+			dev->state == DEV_STATE_CONTROLLER);
+	device_drop_peer(dev, p);
+}
+
+static void peer_on_poll_hello_drop(Peer *p, int eof)
+{
+	Device *dev = p->dev;
+	(void)eof;
+	assert(dev->state == DEV_STATE_UNKNOWN);
+	device_drop_peer(dev, p);
+	device_master_resolve(dev);
+}
+
+static void peer_on_srv_drop(Peer *p, int eof)
+{
+	(void)eof;
+	peer_close(p);
 }
 
 static int peer_close_after_write(Peer *p)
@@ -383,14 +424,19 @@ static void device_srv_event(int fd, LoopEvent event, void *opaque)
 		return;
 	}
 
+	static const PeerVtable vtable = {
+		peer_msg_req_recv,	/* on_in */
+		peer_close_after_write,	/* on_out */
+		peer_on_srv_drop,	/* on_drop */
+	};
+
 	Peer *p = peer_alloc(afd, dev);
 	if (p == NULL) {
 		close(afd);
 		return;
 	}
 
-	p->on_in = peer_msg_req_recv;
-	p->on_out = peer_close_after_write;
+	peer_vtable_set(p, &vtable);
 	loop_fd_add(afd, LOOP_RD, peer_rdwr_event, p);
 }
 
@@ -451,11 +497,27 @@ static void peer_set_req_send(Peer *p, const char *msg,
 	p->off  = 0;
 }
 
-static void device_master_or_slave_resolve(Device *dev)
+static void device_master_resolve(Device *dev)
 {
-	assert(dev->state != DEV_STATE_UNKNOWN);
+	assert(dev->state == DEV_STATE_UNKNOWN);
+
+	/* Can't resolve to MASTER when other peers are still polled. */
+	if (device_is_polling_inprogress(dev)) {
+		return;
+	}
+
+	dev->state = DEV_STATE_MASTER;
 	warnx("%u is %s", dev->host, device_state2name(dev));
-	dev->display(dev, " [ %s %u ]", device_state2name(dev), dev->host);
+	dev->ops->display(dev, " [ %s %u ]", device_state2name(dev), dev->host);
+	device_next_step(dev);
+}
+
+static void device_slave_resolve(Device *dev)
+{
+	assert(dev->state == DEV_STATE_UNKNOWN);
+	dev->state = DEV_STATE_SLAVE;
+	warnx("%u is %s", dev->host, device_state2name(dev));
+	dev->ops->display(dev, " [ %s %u ]", device_state2name(dev), dev->host);
 	device_next_step(dev);
 }
 
@@ -465,19 +527,14 @@ static int peer_hello_resp_recv(Peer *p)
 
 	assert(dev->state == DEV_STATE_UNKNOWN);
 
-	/* Someone with a higher address answered then drop all
-	 * other HELLO peers cause we don't need their results. */
-	if (p->off == 1 && p->buf[0] == MSG_HELLO) {
-		dev->state = DEV_STATE_SLAVE;
+	/* Someone with the higher address replied then drop all
+	 * other polling peers cause we don't need their results. */
+	if (p->off == 1 && *p->buf == MSG_HELLO) {
 		device_drop_peers(dev);
-		device_master_or_slave_resolve(dev);
+		device_slave_resolve(dev);
 	} else {
-		list_remove((struct list **)&dev->head, (struct list *)p);
-		peer_close(p);
-		if (!device_is_polling_inprogress(dev)) {
-			dev->state = DEV_STATE_MASTER;
-			device_master_or_slave_resolve(dev);
-		}
+		device_drop_peer(dev, p);
+		device_master_resolve(dev);
 	}
 
 	return 0;
@@ -498,7 +555,6 @@ static int peer_get_resp_recv(Peer *p)
 		return -1;
 	}
 
-	//puts(__func__);
 	q += 1;
 	/* Partial read. */
 	if (n < 3) {
@@ -540,9 +596,7 @@ static int peer_get_resp_recv(Peer *p)
 	}
 
 	device_params_put(dev, params[PARAM_TEMP].val, params[PARAM_BRGHT].val);
-
-	list_remove((struct list **)&dev->head, (struct list *)p);
-	peer_close(p);
+	device_drop_peer(dev, p);
 
 	return 0;
 }
@@ -552,16 +606,6 @@ static int peer_rd_after_wr(Peer *p)
 	p->off = 0;
 	loop_fd_change(p->fd, LOOP_RD);
 	return 0;
-}
-
-static void peer_on_drop(Peer *p, int eof)
-{
-	Device *dev = p->dev;
-	(void)eof;
-
-	list_remove((struct list **)&dev->head, (struct list *)p);
-	peer_close(p);
-
 }
 
 static void
@@ -582,16 +626,14 @@ device_connect_range(Device *dev, const Range *range, int excl,
 			continue;
 		}
 
+		/* Set vtable when connection is established. */
 		Peer *p = peer_alloc(fd, dev);
 		if (p == NULL) {
 			close(fd);
 			continue;
 		}
 
-		/* Add special handler to remove from list in case of failure. */
-		p->on_drop = peer_on_drop;
 		list_prepend((struct list **)&dev->head, (struct list *)p);
-
 		loop_fd_add(p->fd, LOOP_WR, on_connect, p);
 	}
 }
@@ -605,20 +647,21 @@ peer_master_or_slave_on_connect(int fd, LoopEvent event, void *opaque)
 	assert(dev->state == DEV_STATE_UNKNOWN);
 	(void)event;
 
+	static const PeerVtable vtable = {
+		peer_hello_resp_recv,	/* on_in */
+		peer_rd_after_wr,	/* on_out */
+		peer_on_poll_hello_drop,
+	};
+
 	/* If connection was success send hello request. */
 	if (peer_check_connection(p)) {
 		loop_fd_del(fd);
-		p->on_in  = peer_hello_resp_recv;
-		p->on_out = peer_rd_after_wr;
+		peer_vtable_set(p, &vtable);
 		peer_hello_req_send(p);
 		loop_fd_add(p->fd, LOOP_WR, peer_rdwr_event, p);
 	} else {
-		list_remove((struct list **)&dev->head, (struct list *)p);
-		peer_close(p);
-		if (!device_is_polling_inprogress(dev)) {
-			dev->state = DEV_STATE_MASTER;
-			device_master_or_slave_resolve(dev);
-		}
+		device_drop_peer(dev, p);
+		device_master_resolve(dev);
 	}
 }
 
@@ -631,11 +674,7 @@ static void device_master_or_slave(Device *dev)
 
 	device_connect_range(dev, &range, -1, peer_master_or_slave_on_connect);
 
-	/* There is no peers left to poll, so the device is a master. */
-	if (!device_is_polling_inprogress(dev)) {
-		dev->state = DEV_STATE_MASTER;
-		device_master_or_slave_resolve(dev);
-	}
+	device_master_resolve(dev);
 }
 
 static void peer_poll(Peer *p)
@@ -658,15 +697,19 @@ static void peer_poll_on_connect(int fd, LoopEvent event, void *opaque)
 
 	(void)event;
 
+	static const PeerVtable vtable = {
+		peer_get_resp_recv,	/* on_in */
+		peer_rd_after_wr,	/* on_out */
+		peer_on_poll_drop,
+	};
+
 	if (peer_check_connection(p)) {
 		loop_fd_del(fd);
-		p->on_in  = peer_get_resp_recv;
-		p->on_out = peer_rd_after_wr;
+		peer_vtable_set(p, &vtable);
 		peer_poll(p);
 		loop_fd_add(p->fd, LOOP_WR, peer_rdwr_event, p);
 	} else {
-		list_remove((struct list **)&dev->head, (struct list *)p);
-		peer_close(p);
+		device_drop_peer(dev, p);
 	}
 }
 
@@ -704,7 +747,7 @@ static void device_param_avg_calc(Device *dev)
 
 	device_net_msg_set(dev);
 	warnx("CALC");
-	dev->display(dev, " [ %s %u ] brigtness (avg): %u, temp (avg): %u'C",
+	dev->ops->display(dev, " [ %s %u ] brigtness (avg): %u, temp (avg): %u'C",
 			device_state2name(dev) , dev->host,
 			dev->param_avg.brgth, dev->param_avg.temp);
 }
@@ -732,7 +775,7 @@ static void device_poll_sensors(Device *dev)
 	device_connect_range(dev, &range, excl, peer_poll_on_connect);
 
 	/* Schedule a new polling. */
-	dev->resched_timer(dev, DEVICE_MASTER_TIMEOUT);
+	dev->ops->resched_timer(dev, DEVICE_MASTER_TIMEOUT);
 }
 
 static void device_next_step(Device *dev)
@@ -740,12 +783,12 @@ static void device_next_step(Device *dev)
 	switch (dev->state) {
 	case DEV_STATE_UNKNOWN:
 		dev->params_used = 0;
-		dev->resched_timer(dev, 0);
+		dev->ops->resched_timer(dev, 0);
 		device_master_or_slave(dev);
 		break;
 	case DEV_STATE_SLAVE:
 		dev->params_used = 0;
-		dev->resched_timer(dev, DEVICE_SLAVE_TIMEOUT);
+		dev->ops->resched_timer(dev, DEVICE_SLAVE_TIMEOUT);
 		break;
 	case DEV_STATE_CONTROLLER:
 	case DEV_STATE_MASTER:
@@ -756,7 +799,7 @@ static void device_next_step(Device *dev)
 	}
 }
 
-static void device_on_timeout(Device *dev)
+void device_timeout(Device *dev)
 {
 	switch (dev->state) {
 	case DEV_STATE_SLAVE:
@@ -774,13 +817,13 @@ static void device_on_timeout(Device *dev)
 	}
 }
 
-int device_init(Device *dev, int host, int is_controller)
+int device_init(Device *dev, int host, int is_controller, const DeviceOps *ops)
 {
 	memset(dev, 0, sizeof(*dev));
 	dev->state = is_controller ? DEV_STATE_CONTROLLER : DEV_STATE_UNKNOWN;
 	dev->host = host;
-	dev->on_timeout = device_on_timeout;
 	dev->fd = -1;
+	dev->ops = ops;
 
 	if (!is_controller) {
 		char sock[32];
@@ -824,3 +867,4 @@ void device_deinit(Device *dev)
 	device_drop_peers(dev);
 	free(dev->params);
 }
+
