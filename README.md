@@ -31,20 +31,20 @@ The network address is such attribute.
 
 A sensor can be in several states: UNKNOWN, MASTER, SLAVE.
 
-UNKNOWN - needs to detect the role (MASTER or SLAVE)
+* UNKNOWN - needs to detect the role (MASTER or SLAVE)
 
-SLAVE - polled by MASTER
+* SLAVE - polled by MASTER
 
-MASTER - poll other sensors
+* MASTER - poll other sensors
 
 
-Use 3 network packet types:
+Use 2 network packet types:
 
-HELLO - something like echo, detect other host reachability
+* HELLO - discovery packet, detects other host reachability
 
-SET - set an averaged temperature and a text message
+* GET - gets the current temperature and brightness, may content an averaged
+brigtness and a text message to show on the sensors output device.
 
-GET - get the current temperature and brightness
 
 At a start time or at a time when the lost of a controller is detected each
 sensor comes to UNKNOWN state. In this state the current device is interested
@@ -56,20 +56,20 @@ address sensor is found, since it gets a single response other responses are
 not important) and change its state to SLAVE. If there are no valid responses
 it means that the sensor has the highest address and it changes its state to
 MASTER. In UNKNOWN state while polling other sensors the device keeps accepting
-connections and receiving HELLO, SET or GET from other sensors. HELLO is
-echoed, but if the device receives SET or GET it means that other master or the
+connections and receiving HELLO or GET from other sensors. HELLO is
+echoed, but if the device receives GET it means that other master or the
 controller is back and the device needs to drop all HELLO connections and
 changes its state to SLAVE.
 
 In SLAVE state the sensor only accepts connections from other sensors and
-replies to HELLO, SET or GET. It also starts timer to detect when there is no
+replies to HELLO or GET. It also starts timer to detect when there is no
 messages for long time. When the timeout is triggered the sensor changes it
 state to UNKOWN and detects its new role (read above).
 
 In MASTER state the sensor polls addresses that are LESS than its own address.
-The sensor accepts connections from other sensors as before. If it receives SET
-or GET it means that other master or the controller is back and the sensor
-changes its state to SLAVE.
+The sensor accepts connections from other sensors as before. If it receives GET
+it means that other master or the controller is back and the sensor changes
+its state to SLAVE.
 
 What about a controller? The controller is just the same program. It is a
 device which doesn't accept connections from other sensors and can't change its

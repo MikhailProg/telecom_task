@@ -20,9 +20,9 @@ struct Param {
 };
 
 struct DeviceOps {
-	void	(*display)(Device *dev, const char *fmt, ...)
+	void	(*display)(const Device *dev, const char *fmt, ...)
 				__attribute__ ((format (printf, 2, 3)));
-	void	(*resched_timer)(Device *dev, int secs);
+	void	(*resched_timer)(const Device *dev, int secs);
 };
 
 struct Device {
@@ -36,7 +36,6 @@ struct Device {
 	Param	param_avg;	/* calucated avg params for sending */
 	char	net_msg[64];	/* master message to send to other devices */
 	int	net_msg_len;	/* cached net_msg length */
-	int	poll_cycles;
 	const DeviceOps *ops;
 };
 

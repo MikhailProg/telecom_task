@@ -19,9 +19,8 @@
 #define PEER_BUF_SIZE	128
 
 #define MSG_HELLO	1
-#define MSG_SET		2
-#define MSG_GET		3
-#define MSG_RES		4
+#define MSG_GET		2
+#define MSG_RES		3
 
 #define	PARAM_TEXT	1	/* nul-terminated */
 #define PARAM_TEMP	2	/* 2 bytes */
@@ -56,12 +55,12 @@ struct Peer {
 	const PeerVtable *v;
 };
 
-struct range {
+struct Range {
 	int from;
 	int to;
 };
 
-typedef struct range Range;
+typedef struct Range Range;
 
 static void device_next_step(Device *dev);
 static void device_master_resolve(Device *dev);
@@ -149,11 +148,21 @@ static void put_u16(uint8_t *p, uint16_t n)
 	p[1] = n        & 0xff;
 }
 
-static void peer_hello_req_send(Peer *p)
+static void peer_hello_send(Peer *p)
 {
 	*p->buf = MSG_HELLO;
 	p->left = 1;
 	p->off  = 0;
+}
+
+static void peer_hello_req_send(Peer *p)
+{
+	peer_hello_send(p);
+}
+
+static void peer_hello_resp_send(Peer *p)
+{
+	peer_hello_send(p);
 }
 
 static int peer_hello_req_recv(Peer *p)
@@ -161,12 +170,12 @@ static int peer_hello_req_recv(Peer *p)
 	if (p->off != 1) {
 		return -1;
 	}
-	peer_hello_req_send(p);
+	peer_hello_resp_send(p);
 	loop_fd_change(p->fd, LOOP_WR);
 	return 0;
 }
 
-static int peer_get_req_recv(Peer *p)
+static void peer_get_resp_send(Peer *p)
 {
 	unsigned char *q = p->buf;
 	/* Generate random values in response. */
@@ -182,8 +191,6 @@ static int peer_get_req_recv(Peer *p)
 #undef GEN_XXX
 	int i;
 
-	warnx("RECV GET as slave");
-
 	for (i = 0; i < (int)ARRSZ(val); i++) {
 		*q++ = val[i].n;
 		put_u16(q, val[i].v);
@@ -192,12 +199,47 @@ static int peer_get_req_recv(Peer *p)
 
 	p->off  = 0;
 	p->left = 9;
-
-	loop_fd_change(p->fd, LOOP_WR);
-	return 0;
 }
 
-static int peer_set_req_recv(Peer *p)
+static void
+peer_get_req_send(Peer *p, const char *msg, size_t n, uint16_t brght)
+{
+	unsigned char *q = p->buf;
+
+	/* n must includes 0 */
+	n = n > p->size - 7 ? p->size - 7 : n;
+	uint16_t len = 1 + 2 + 1 + n + 1 + 2;
+
+	*q++ = MSG_GET;
+	put_u16(q, len);
+	q += 2;
+
+	*q++ = PARAM_TEXT;
+	memcpy(q, msg, n);
+	q[n] = 0;	/* make sure it is nullterminated */
+	q += n;
+
+	*q++ = PARAM_BRGHT;
+	put_u16(q, brght);
+	q += 2;
+
+	p->left = len;
+	p->off  = 0;
+}
+
+static void peer_get_req_empty_send(Peer *p)
+{
+	unsigned char *q = p->buf;
+	const uint16_t len = 3;
+
+	*q++ = MSG_GET;
+	put_u16(q, len);
+
+	p->left = len;
+	p->off  = 0;
+}
+
+static int peer_get_req_param_recv(Peer *p)
 {
 	Device *dev = p->dev;
 	unsigned char *q = p->buf;
@@ -230,15 +272,21 @@ static int peer_set_req_recv(Peer *p)
 	}
 
 	assert(n == len);
+	unsigned char *e = q + len - 3;
+	/* empty MSG_GET */
+	if (q == e) {
+		return 0;
+	}
 
 	memset(&params, 0, sizeof(params));
-	unsigned char *e = q + len - 3;
-
 	while (q < e) {
 		unsigned char type = *q++;
 		unsigned char *s;
 		switch (type) {
 		case PARAM_TEXT:
+			if (params[type].upd) {
+				return -1;
+			}
 			s = memchr(q, 0, e - q);
 			if (s == NULL) {
 				return -1;
@@ -248,6 +296,9 @@ static int peer_set_req_recv(Peer *p)
 			q = s + 1;
 			break;
 		case PARAM_BRGHT:
+			if (params[type].upd) {
+				return -1;
+			}
 			if (q + 2 > e) {
 				return -1;
 			}
@@ -264,13 +315,26 @@ static int peer_set_req_recv(Peer *p)
 		return -1;
 	}
 
-	warnx("RECV SET as slave: brigtness: %u, message: \"%s\"",
+	warnx("RECV GET: brigtness: %u, message: \"%s\"",
 			params[PARAM_BRGHT].val, params[PARAM_TEXT].str);
 	dev->ops->display(dev, " [ %s %u ] brigtness: %u, message: \"%s\"",
 			device_state2name(dev) , dev->host,
 			params[PARAM_BRGHT].val, params[PARAM_TEXT].str);
+	return 0;
+}
 
-	peer_close(p);
+static int peer_get_req_recv(Peer *p)
+{
+	warnx("RECV GET");
+
+	int rc = peer_get_req_param_recv(p);
+	if (rc != 0) {
+		/* rc might be 1 (partial read) and -1 (error) */
+		return rc;
+	}
+
+	peer_get_resp_send(p);
+	loop_fd_change(p->fd, LOOP_WR);
 	return 0;
 }
 
@@ -286,9 +350,6 @@ static int peer_msg_req_recv(Peer *p)
 		break;
 	case MSG_GET:
 		rc = peer_get_req_recv(p);
-		break;
-	case MSG_SET:
-		rc = peer_set_req_recv(p);
 		break;
 	default:
 		rc = -1;
@@ -404,22 +465,21 @@ static int peer_close_after_write(Peer *p)
 static void device_srv_event(int fd, LoopEvent event, void *opaque)
 {
 	Device *dev = opaque;
-	struct sockaddr_storage ss;
-	socklen_t slen = sizeof(ss);
 
 	if (!(event & LOOP_RD)) {
 		return;
 	}
 
-	int afd = accept(fd, (void *)&ss, &slen);
+	int afd = unix_accept(fd, 1);
 	if (afd < 0) {
 		if (!SOFT_ERROR) {
-			warn("accept()");
+			warn("sock_accept()");
 		}
 		return;
 	}
 
-	if (fd_nonblock(afd) < 0) {
+	Peer *p = peer_alloc(afd, dev);
+	if (p == NULL) {
 		close(afd);
 		return;
 	}
@@ -429,12 +489,6 @@ static void device_srv_event(int fd, LoopEvent event, void *opaque)
 		peer_close_after_write,	/* on_out */
 		peer_on_srv_drop,	/* on_drop */
 	};
-
-	Peer *p = peer_alloc(afd, dev);
-	if (p == NULL) {
-		close(afd);
-		return;
-	}
 
 	peer_vtable_set(p, &vtable);
 	loop_fd_add(afd, LOOP_RD, peer_rdwr_event, p);
@@ -461,40 +515,7 @@ static int device_params_put(Device *dev, uint16_t temp, uint16_t brgth)
 
 static int peer_check_connection(const Peer *p)
 {
-	return fd_check_sock_connection(p->fd);
-}
-
-static void peer_get_req_send(Peer *p)
-{
-	*p->buf = MSG_GET;
-	p->left = 1;
-	p->off  = 0;
-}
-
-static void peer_set_req_send(Peer *p, const char *msg,
-				size_t n, uint16_t brght)
-{
-	unsigned char *q = p->buf;
-
-	/* n must includes 0 */
-	n = n > p->size - 7 ? p->size - 7 : n;
-	uint16_t len = 1 + 2 + 1 + n + 1 + 2;
-
-	*q++ = MSG_SET;
-	put_u16(q, len);
-	q += 2;
-
-	*q++ = PARAM_TEXT;
-	memcpy(q, msg, n);
-	q[n] = 0;	/* make sure it is nullterminated */
-	q += n;
-
-	*q++ = PARAM_BRGHT;
-	put_u16(q, brght);
-	q += 2;
-
-	p->left = len;
-	p->off  = 0;
+	return unix_check_connection(p->fd);
 }
 
 static void device_master_resolve(Device *dev)
@@ -573,15 +594,17 @@ static int peer_get_resp_recv(Peer *p)
 	}
 
 	assert(len == n);
-
-	memset(&params, 0, sizeof(params));
 	unsigned char *e = q + len - 3;
 
+	memset(&params, 0, sizeof(params));
 	while (q < e) {
 		unsigned char type = *q++;
 		switch (type) {
 		case PARAM_TEMP:
 		case PARAM_BRGHT:
+			if (params[type].upd) {
+				return -1;
+			}
 			params[type].upd = 1;
 			params[type].val = get_u16(q);
 			q += 2;
@@ -673,21 +696,7 @@ static void device_master_or_slave(Device *dev)
 	};
 
 	device_connect_range(dev, &range, -1, peer_master_or_slave_on_connect);
-
 	device_master_resolve(dev);
-}
-
-static void peer_poll(Peer *p)
-{
-	Device *dev = p->dev;
-
-	/* send set request every 3 cycles */
-	if (dev->poll_cycles % 3 == 0) {
-		peer_set_req_send(p, dev->net_msg, dev->net_msg_len,
-					dev->param_avg.brgth);
-	} else {
-		peer_get_req_send(p);
-	}
 }
 
 static void peer_poll_on_connect(int fd, LoopEvent event, void *opaque)
@@ -706,7 +715,10 @@ static void peer_poll_on_connect(int fd, LoopEvent event, void *opaque)
 	if (peer_check_connection(p)) {
 		loop_fd_del(fd);
 		peer_vtable_set(p, &vtable);
-		peer_poll(p);
+		dev->net_msg_len ?
+			peer_get_req_send(p, dev->net_msg, dev->net_msg_len,
+						dev->param_avg.brgth) :
+			peer_get_req_empty_send(p);
 		loop_fd_add(p->fd, LOOP_WR, peer_rdwr_event, p);
 	} else {
 		device_drop_peer(dev, p);
@@ -760,7 +772,6 @@ static void device_poll_sensors(Device *dev)
 		device_drop_peers(dev);
 	}
 
-	++dev->poll_cycles;
 	/* Calculate averages from the previous cycle. */
 	device_param_avg_calc(dev);
 
@@ -770,10 +781,9 @@ static void device_poll_sensors(Device *dev)
 		1, device_is_controller(dev) ?
 			DEVICE_HOST_ADDR_MAX : dev->host - 1
 	};
-	int excl = device_is_controller(dev) ? dev->host : -1;
+	const int excl = device_is_controller(dev) ? dev->host : -1;
 
 	device_connect_range(dev, &range, excl, peer_poll_on_connect);
-
 	/* Schedule a new polling. */
 	dev->ops->resched_timer(dev, DEVICE_MASTER_TIMEOUT);
 }
@@ -782,12 +792,12 @@ static void device_next_step(Device *dev)
 {
 	switch (dev->state) {
 	case DEV_STATE_UNKNOWN:
-		dev->params_used = 0;
 		dev->ops->resched_timer(dev, 0);
 		device_master_or_slave(dev);
 		break;
 	case DEV_STATE_SLAVE:
 		dev->params_used = 0;
+		dev->net_msg_len = 0;
 		dev->ops->resched_timer(dev, DEVICE_SLAVE_TIMEOUT);
 		break;
 	case DEV_STATE_CONTROLLER:
@@ -805,6 +815,8 @@ void device_timeout(Device *dev)
 	case DEV_STATE_SLAVE:
 		/* There are no requests for a long time. */
 		dev->state = DEV_STATE_UNKNOWN;
+		dev->ops->display(dev, " [ %s %u ]",
+					device_state2name(dev), dev->host);
 		device_next_step(dev);
 		break;
 	case DEV_STATE_CONTROLLER:

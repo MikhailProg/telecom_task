@@ -96,7 +96,7 @@ static void sigdeinit(void)
 	close(sigpipe[1]);
 }
 
-static void resched_timer(Device *dev, int secs)
+static void resched_timer(const Device *dev, int secs)
 {
 	(void)dev;
 	/* Forget current timeout, we are not interested in it anymore. */
@@ -104,7 +104,7 @@ static void resched_timer(Device *dev, int secs)
 	alarm(secs);
 }
 
-static void display(Device *dev, const char *fmt, ...)
+static void display(const Device *dev, const char *fmt, ...)
 {
 	va_list ap;
 

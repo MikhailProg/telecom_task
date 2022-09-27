@@ -43,6 +43,24 @@ int unix_listen(const char *path)
 	return un;
 }
 
+int unix_accept(int un, int nonblock)
+{
+	struct sockaddr_storage ss;
+	socklen_t slen = sizeof(ss);
+
+	int afd = accept(un, (void *)&ss, &slen);
+	if (afd < 0) {
+		return afd;
+	}
+
+	if (nonblock && fd_nonblock(afd) < 0) {
+		close(afd);
+		return -1;
+	}
+
+	return afd;
+}
+
 int unix_connect(const char *path, int nonblock)
 {
 	struct sockaddr_un sun;
@@ -79,4 +97,17 @@ int unix_connect(const char *path, int nonblock)
 	return un;
 }
 
+int unix_check_connection(int un)
+{
+	int err = 0;
+	socklen_t elen = sizeof(err);
+
+	if (getsockopt(un, SOL_SOCKET, SO_ERROR, &err, &elen) < 0) {
+		err = errno;
+	} else if (err) {
+		errno = err;
+	}
+
+	return err ? 0 : 1;
+}
 
