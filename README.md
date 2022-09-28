@@ -1,6 +1,6 @@
 Here is a test task that an interviewee needs to accomplish as a part of a job
 interview. This task is from a company which produces telecom equipment.
-I've found its quite challenging that is why I publish the task and my solution.
+I've found its interesting that is why I publish the task and my solution.
 
 ## Test task
 
