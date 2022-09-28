@@ -261,7 +261,7 @@ static int peer_get_req_param_recv(Peer *p)
 	q += 1;
 	uint16_t len = get_u16(q);
 	/* read more bytes than packet reports or len is more than buf max size */
-	if (n > len || len > p->size) {
+	if (len < 3 || n > len || len > p->size) {
 		return -1;
 	}
 	q += 2;
