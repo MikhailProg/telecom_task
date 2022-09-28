@@ -43,7 +43,8 @@ Use 2 network packet types:
 * HELLO - discovery packet, detects other host reachability
 
 * GET - gets the current temperature and brightness, may content an averaged
-brigtness and a text message to show on the sensors output device.
+brigtness and a text message to show on the sensors output device (so get may
+also be set command).
 
 
 At a start time or at a time when the lost of a controller is detected each
