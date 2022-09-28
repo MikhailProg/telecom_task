@@ -6,9 +6,9 @@ I've found its interesting that is why I publish the task and my solution.
 
 There is a network of sensors, sensors measure a temperature and a brightness.
 The sensors are polled for these parameters by a controller. The controller
-gathers parameters, calculates averaged values and from time to time sends
-averaged temperature and arbitrary text to sensors. Each sensor shows received
-info on its output device.
+gathers parameters, calculates averaged values and sends averaged temperature
+and arbitrary text to sensors. Each sensor shows received info on its output
+device.
 
 The network is not reliable and sensors can be unreachable by the controller.
 Lost sensors are left in their local network where they need to choose a master
