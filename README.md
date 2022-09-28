@@ -54,7 +54,7 @@ connects to sensors with HIGHER address and when the connection is established
 it sends HELLO message. In response HELLO is expected. If at least one sensor
 responses with HELLO the current sensor drops all HELLO connections (the higher
 address sensor is found, since it gets a single response other responses are
-not important) and change its state to SLAVE. If there are no valid responses
+not important) and changes its state to SLAVE. If there are no valid responses
 it means that the sensor has the highest address and it changes its state to
 MASTER. In UNKNOWN state while polling other sensors the device keeps accepting
 connections and receiving HELLO or GET from other sensors. HELLO is
@@ -65,7 +65,7 @@ changes its state to SLAVE.
 In SLAVE state the sensor only accepts connections from other sensors and
 replies to HELLO or GET. It also starts timer to detect when there is no
 messages for long time. When the timeout is triggered the sensor changes it
-state to UNKOWN and detects its new role (read above).
+state to UNKNOWN and detects its new role (read about UNKNOWN state).
 
 In MASTER state the sensor polls addresses that are LESS than its own address.
 The sensor accepts connections from other sensors as before. If it receives GET
@@ -74,8 +74,8 @@ its state to SLAVE.
 
 What about a controller? The controller is just the same program. It is a
 device which doesn't accept connections from other sensors and can't change its
-state, it is alway in controller state. It polls sensors and insists that he is
-a master device for other. The controller can have arbitrary address. The
+state, it is alway in controller/master state. It polls sensors and insists that
+it is a master device for other. The controller can have arbitrary address. The
 network can have several controllers.
 
 
