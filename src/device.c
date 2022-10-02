@@ -16,6 +16,8 @@
 #include "list.h"
 #include "device.h"
 
+//#define FUZZ_IO		1
+
 #define PEER_BUF_SIZE	128
 
 #define MSG_HELLO	1
@@ -118,7 +120,7 @@ static int device_is_controller(const Device *dev)
 	return dev->state == DEV_STATE_CONTROLLER ? 1 : 0;
 }
 
-static int device_is_polling_inprogress(Device *dev)
+static int device_is_polling_inprogress(const Device *dev)
 {
 	return dev->head ? 1 : 0;
 }
@@ -393,8 +395,13 @@ static void peer_rdwr_event(int fd, LoopEvent event, void *opaque)
 		goto drop;
 	}
 
+
 	if (event & LOOP_RD) {
-		ssize_t n = recv(fd, p->buf + p->off, p->size - p->off, 0);
+		int m = p->size - p->off;
+#ifdef FUZZ_IO
+		m = 1 + rand() % m;
+#endif
+		ssize_t n = recv(fd, p->buf + p->off, m, 0);
 		if (n <= 0) {
 			if (n == 0 || (n < 0 && !SOFT_ERROR)) {
 				eof = n == 0 ? 1 : 0;
@@ -407,7 +414,11 @@ static void peer_rdwr_event(int fd, LoopEvent event, void *opaque)
 			}
 		}
 	} else if (event & LOOP_WR) {
-		ssize_t n = send(fd, p->buf + p->off, p->left, 0);
+		int m = p->left;
+#ifdef FUZZ_IO
+		m = 1 + rand() % m;
+#endif
+		ssize_t n = send(fd, p->buf + p->off, m, 0);
 		if (n < 0) {
 			if (n < 0 && !SOFT_ERROR) {
 				goto drop;
@@ -870,11 +881,10 @@ void device_deinit(Device *dev)
 	if (dev->fd != -1) {
 		loop_fd_del(dev->fd);
 		close(dev->fd);
+		char sock[32];
+		snprintf(sock, sizeof(sock), "%d", dev->host);
+		unlink(sock);
 	}
-
-	char sock[32];
-	snprintf(sock, sizeof(sock), "%d", dev->host);
-	unlink(sock);
 
 	device_drop_peers(dev);
 	free(dev->params);

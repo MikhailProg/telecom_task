@@ -1,8 +1,8 @@
 #/bin/sh
 
-set -e
+set -eu
 
-ADDRS=""
+ADDRS=
 
 for i in $(seq 5); do
     while :; do
