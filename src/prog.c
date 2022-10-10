@@ -56,7 +56,8 @@ static void sigall(int signo)
 	unsigned char a = 42;
 
 	signals[signo] = 1;
-	(void)!write(sigpipe[1], &a, 1);
+	int unused = write(sigpipe[1], &a, 1);
+	UNUSED(unused);
 }
 
 static void siginit(void)
