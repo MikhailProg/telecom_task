@@ -11,10 +11,9 @@
 #include "utils.h"
 #include "proctitle.h"
 #include "device.h"
+#include "sigs.h"
 
 static Device device;
-static int sigpipe[2];
-static int signals[NSIG];
 
 static void env_opts_parse(int *host, int *is_controller)
 {
@@ -27,81 +26,22 @@ static void env_opts_parse(int *host, int *is_controller)
 	*is_controller = getenv("CONTROLLER") ? 1 : 0;
 }
 
-static void sig_event(int fd, LoopEvent event, void *opaque)
+static void signals_notify(sigset_t *sigmask)
 {
-	char buf[32];
-
-	(void)opaque;
-
-	if (!(event & LOOP_RD))
-		return;
-
-	/* Drain all data from event fd till EAGAIN. */
-	while (read(fd, buf, sizeof(buf)) > 0)
-		;
-
-	if (signals[SIGALRM]) {
-		signals[SIGALRM] = 0;
+	if (sigismember(sigmask, SIGALRM)) {
 		device_timeout(&device);
 	}
 
-	if (signals[SIGTERM] || signals[SIGINT]) {
-		signals[SIGTERM] = signals[SIGINT] = 0;
+	if (sigismember(sigmask, SIGTERM) || sigismember(sigmask, SIGINT)) {
 		loop_quit();
 	}
 }
 
-static void sigall(int signo)
-{
-	unsigned char a = 42;
-
-	signals[signo] = 1;
-	int unused = write(sigpipe[1], &a, 1);
-	UNUSED(unused);
-}
-
-static void siginit(void)
-{
-	struct sigaction sa;
-	int i;
-	int sigs[] = {
-		SIGALRM, SIGTERM, SIGINT
-	};
-
-	if (pipe(sigpipe) < 0) {
-		err(EXIT_FAILURE, "pipe()");
-	}
-
-	if (fd_nonblock(sigpipe[0]) < 0) {
-		err(EXIT_FAILURE, "fd_nonblock()");
-	}
-
-	signal(SIGPIPE, SIG_IGN);
-
-	memset(&sa, 0, sizeof(sa));
-	sigfillset(&sa.sa_mask);
-	sa.sa_flags = SA_RESTART;
-	sa.sa_handler = sigall;
-
-	for (i = 0; i < (int)ARRSZ(sigs); i++) {
-		sigaction(sigs[i], &sa, NULL);
-	}
-
-	loop_fd_add(sigpipe[0], LOOP_RD, sig_event, NULL);
-}
-
-static void sigdeinit(void)
-{
-	loop_fd_del(sigpipe[0]);
-	close(sigpipe[0]);
-	close(sigpipe[1]);
-}
-
 static void resched_timer(const Device *dev, int secs)
 {
-	(void)dev;
+	UNUSED(dev);
 	/* Forget current timeout, we are not interested in it anymore. */
-	signals[SIGALRM] = 0;
+	sigs_reset(SIGALRM);
 	alarm(secs);
 }
 
@@ -109,7 +49,7 @@ static void display(const Device *dev, const char *fmt, ...)
 {
 	va_list ap;
 
-	(void)dev;
+	UNUSED(dev);
 	va_start(ap, fmt);
 	proctitle_vset(fmt, ap);
 	va_end(ap);
@@ -119,7 +59,7 @@ int main(int argc, char *argv[], char *envp[])
 {
 	int host, is_controller;
 
-	(void)argc;
+	UNUSED(argc);
 
 	srand(time(NULL));
 	proctitle_init(argv, envp);
@@ -129,7 +69,12 @@ int main(int argc, char *argv[], char *envp[])
 		errx(EXIT_FAILURE, "loop_init() failed");
 	}
 
-	siginit();
+	if (sigs_init(signals_notify) < 0) {
+		errx(EXIT_FAILURE, "sigs_init() failed");
+	}
+
+	signal(SIGPIPE, SIG_IGN);
+
 	const DeviceOps ops = {
 		display, resched_timer
 	};
@@ -143,7 +88,7 @@ int main(int argc, char *argv[], char *envp[])
 	loop_run();
 
 	device_deinit(&device);
-	sigdeinit();
+	sigs_deinit();
 	loop_fini();
 
 	return EXIT_SUCCESS;

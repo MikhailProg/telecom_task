@@ -446,7 +446,7 @@ drop:
 static void peer_on_poll_drop(Peer *p, int eof)
 {
 	Device *dev = p->dev;
-	(void)eof;
+	UNUSED(eof);
 	assert(dev->state == DEV_STATE_MASTER ||
 			dev->state == DEV_STATE_CONTROLLER);
 	device_drop_peer(dev, p);
@@ -455,7 +455,7 @@ static void peer_on_poll_drop(Peer *p, int eof)
 static void peer_on_poll_hello_drop(Peer *p, int eof)
 {
 	Device *dev = p->dev;
-	(void)eof;
+	UNUSED(eof);
 	assert(dev->state == DEV_STATE_UNKNOWN);
 	device_drop_peer(dev, p);
 	device_master_resolve(dev);
@@ -463,7 +463,7 @@ static void peer_on_poll_hello_drop(Peer *p, int eof)
 
 static void peer_on_srv_drop(Peer *p, int eof)
 {
-	(void)eof;
+	UNUSED(eof);
 	peer_close(p);
 }
 
@@ -679,7 +679,7 @@ peer_master_or_slave_on_connect(int fd, LoopEvent event, void *opaque)
 	Device *dev = p->dev;
 
 	assert(dev->state == DEV_STATE_UNKNOWN);
-	(void)event;
+	UNUSED(event);
 
 	static const PeerVtable vtable = {
 		peer_hello_resp_recv,	/* on_in */
@@ -715,7 +715,7 @@ static void peer_poll_on_connect(int fd, LoopEvent event, void *opaque)
 	Peer *p = opaque;
 	Device *dev = p->dev;
 
-	(void)event;
+	UNUSED(event);
 
 	static const PeerVtable vtable = {
 		peer_get_resp_recv,	/* on_in */

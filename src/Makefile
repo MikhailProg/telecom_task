@@ -27,7 +27,9 @@ proctitle.o: proctitle.c proctitle.h
 
 device.o: device.c device.h
 
-$(TARGET): loop.o unix.o utils.o proctitle.o device.o
+sigs.o: sigs.c sigs.h
+
+$(TARGET): loop.o unix.o utils.o proctitle.o device.o sigs.o
 
 clean:
 	rm -f $(TARGET) *.o
