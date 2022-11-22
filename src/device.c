@@ -29,6 +29,8 @@
 #define PARAM_BRGHT	3	/* 2 bytes */
 #define PARAM_MAX	4
 
+#define DEF_FMT		" [ %6s %3u ]"
+
 #define SOFT_ERROR		(errno == EINTR || errno == EAGAIN || \
 				 errno == EWOULDBLOCK)
 enum {
@@ -115,7 +117,7 @@ static const char *device_state2name(const Device *dev)
 	}
 }
 
-static int device_is_controller(const Device *dev)
+static int device_iscontroller(const Device *dev)
 {
 	return dev->state == DEV_STATE_CONTROLLER ? 1 : 0;
 }
@@ -319,7 +321,7 @@ static int peer_get_req_param_recv(Peer *p)
 
 	warnx("RECV GET: brigtness: %u, message: \"%s\"",
 			params[PARAM_BRGHT].val, params[PARAM_TEXT].str);
-	dev->ops->display(dev, " [ %s %u ] brigtness: %u, message: \"%s\"",
+	dev->ops->display(dev, DEF_FMT " brigtness: %u, message: \"%s\"",
 			device_state2name(dev) , dev->host,
 			params[PARAM_BRGHT].val, params[PARAM_TEXT].str);
 	return 0;
@@ -376,8 +378,8 @@ static int peer_msg_req_recv(Peer *p)
 
 		warnx("%s -> SLAVE", device_state2name(dev));
 		dev->state = DEV_STATE_SLAVE;
-		dev->ops->display(dev, " [ %s %u ]",
-				device_state2name(dev), dev->host);
+		dev->ops->display(dev, DEF_FMT,
+					device_state2name(dev), dev->host);
 	}
 
 	assert(dev->state == DEV_STATE_SLAVE);
@@ -540,7 +542,7 @@ static void device_master_resolve(Device *dev)
 
 	dev->state = DEV_STATE_MASTER;
 	warnx("%u is %s", dev->host, device_state2name(dev));
-	dev->ops->display(dev, " [ %s %u ]", device_state2name(dev), dev->host);
+	dev->ops->display(dev, DEF_FMT, device_state2name(dev), dev->host);
 	device_next_step(dev);
 }
 
@@ -549,7 +551,7 @@ static void device_slave_resolve(Device *dev)
 	assert(dev->state == DEV_STATE_UNKNOWN);
 	dev->state = DEV_STATE_SLAVE;
 	warnx("%u is %s", dev->host, device_state2name(dev));
-	dev->ops->display(dev, " [ %s %u ]", device_state2name(dev), dev->host);
+	dev->ops->display(dev, DEF_FMT, device_state2name(dev), dev->host);
 	device_next_step(dev);
 }
 
@@ -770,7 +772,7 @@ static void device_param_avg_calc(Device *dev)
 
 	device_net_msg_set(dev);
 	warnx("CALC");
-	dev->ops->display(dev, " [ %s %u ] brigtness (avg): %u, temp (avg): %u'C",
+	dev->ops->display(dev, DEF_FMT " brigtness (avg): %u, temp (avg): %u'C",
 			device_state2name(dev) , dev->host,
 			dev->param_avg.brgth, dev->param_avg.temp);
 }
@@ -789,27 +791,27 @@ static void device_poll_sensors(Device *dev)
 	/* The controller polls all hosts exluding itself.
 	 * The master polls hosts which addresses are less. */
 	const Range range = {
-		1, device_is_controller(dev) ?
+		0, device_iscontroller(dev) ?
 			DEVICE_HOST_ADDR_MAX : dev->host - 1
 	};
-	const int excl = device_is_controller(dev) ? dev->host : -1;
+	const int excl = device_iscontroller(dev) ? dev->host : -1;
 
 	device_connect_range(dev, &range, excl, peer_poll_on_connect);
 	/* Schedule a new polling. */
-	dev->ops->resched_timer(dev, DEVICE_MASTER_TIMEOUT);
+	dev->ops->timer(dev, DEVICE_MASTER_TIMEOUT);
 }
 
 static void device_next_step(Device *dev)
 {
 	switch (dev->state) {
 	case DEV_STATE_UNKNOWN:
-		dev->ops->resched_timer(dev, 0);
+		dev->ops->timer(dev, 0);
 		device_master_or_slave(dev);
 		break;
 	case DEV_STATE_SLAVE:
 		dev->params_used = 0;
 		dev->net_msg_len = 0;
-		dev->ops->resched_timer(dev, DEVICE_SLAVE_TIMEOUT);
+		dev->ops->timer(dev, DEVICE_SLAVE_TIMEOUT);
 		break;
 	case DEV_STATE_CONTROLLER:
 	case DEV_STATE_MASTER:
@@ -826,7 +828,7 @@ void device_timeout(Device *dev)
 	case DEV_STATE_SLAVE:
 		/* There are no requests for a long time. */
 		dev->state = DEV_STATE_UNKNOWN;
-		dev->ops->display(dev, " [ %s %u ]",
+		dev->ops->display(dev, DEF_FMT,
 					device_state2name(dev), dev->host);
 		device_next_step(dev);
 		break;
@@ -840,15 +842,15 @@ void device_timeout(Device *dev)
 	}
 }
 
-int device_init(Device *dev, int host, int is_controller, const DeviceOps *ops)
+int device_init(Device *dev, int host, int iscontroller, const DeviceOps *ops)
 {
 	memset(dev, 0, sizeof(*dev));
-	dev->state = is_controller ? DEV_STATE_CONTROLLER : DEV_STATE_UNKNOWN;
+	dev->state = iscontroller ? DEV_STATE_CONTROLLER : DEV_STATE_UNKNOWN;
 	dev->host = host;
 	dev->fd = -1;
 	dev->ops = ops;
 
-	if (!is_controller) {
+	if (!iscontroller) {
 		char sock[32];
 		snprintf(sock, sizeof(sock), "%d", host);
 
@@ -871,9 +873,10 @@ int device_init(Device *dev, int host, int is_controller, const DeviceOps *ops)
 	return 0;
 }
 
-void device_start(Device *dev)
+void device_run(Device *dev)
 {
 	device_next_step(dev);
+	loop_run();
 }
 
 void device_deinit(Device *dev)

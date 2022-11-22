@@ -1,3 +1,5 @@
+#include <sys/time.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -14,7 +16,7 @@
 
 static Device device;
 
-static void env_opts_parse(int *host, int *is_controller)
+static void env_opts_parse(int *host, int *iscontroller)
 {
 	char *s = getenv("HOST_ADDR");
 	if (s == NULL || (*host = atoi(s)) < 0 || *host > DEVICE_HOST_ADDR_MAX) {
@@ -22,7 +24,7 @@ static void env_opts_parse(int *host, int *is_controller)
 							DEVICE_HOST_ADDR_MAX);
 	}
 
-	*is_controller = getenv("CONTROLLER") ? 1 : 0;
+	*iscontroller = getenv("CONTROLLER") ? 1 : 0;
 }
 
 static void signals_notify(sigset_t *sigmask)
@@ -36,12 +38,15 @@ static void signals_notify(sigset_t *sigmask)
 	}
 }
 
-static void resched_timer(const Device *dev, int secs)
+static void timer(const Device *dev, int msec)
 {
 	UNUSED(dev);
 	/* Forget current timeout, we are not interested in it anymore. */
 	sigs_reset(SIGALRM);
-	alarm(secs);
+	struct itimerval tval = {
+		{ 0 , 0 }, { msec / 1000, msec % 1000 * 1000 }
+	};
+	setitimer(ITIMER_REAL, &tval, NULL);
 }
 
 static void display(const Device *dev, const char *fmt, ...)
@@ -54,15 +59,13 @@ static void display(const Device *dev, const char *fmt, ...)
 	va_end(ap);
 }
 
-int main(int argc, char *argv[], char *envp[])
-{
-	int host, is_controller;
 
+static void prog_init(int argc, char **argv, char **envp)
+{
 	UNUSED(argc);
 
-	srand(time(NULL));
 	proctitle_init(argv, envp);
-	env_opts_parse(&host, &is_controller);
+	srand(time(NULL));
 
 	if (loop_init(LOOP_DRV_DEFAULT) < 0) {
 		errx(EXIT_FAILURE, "loop_init() failed");
@@ -73,22 +76,36 @@ int main(int argc, char *argv[], char *envp[])
 	}
 
 	signal(SIGPIPE, SIG_IGN);
+}
+
+
+static void prog_deinit()
+{
+	sigs_deinit();
+	loop_fini();
+}
+
+int main(int argc, char *argv[], char *envp[])
+{
+	int host, iscontroller;
+
+	env_opts_parse(&host, &iscontroller);
+
+	prog_init(argc, argv, envp);
 
 	const DeviceOps ops = {
-		display, resched_timer
+		display, timer
 	};
 
-	if (device_init(&device, host, is_controller, &ops) < 0) {
+	if (device_init(&device, host, iscontroller, &ops) < 0) {
 		errx(EXIT_FAILURE, "device_init() failed");
 	}
 
-	device_start(&device);
-
-	loop_run();
+	device_run(&device);
 
 	device_deinit(&device);
-	sigs_deinit();
-	loop_fini();
+
+	prog_deinit();
 
 	return EXIT_SUCCESS;
 }

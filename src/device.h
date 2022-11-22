@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-/* Timeout to polling sensors. */
-#define	DEVICE_MASTER_TIMEOUT	2
+/* Timeout to polling sensors in msec. */
+#define	DEVICE_MASTER_TIMEOUT	2000
 /* Timeout for waiting a request from a controller. */
 #define DEVICE_SLAVE_TIMEOUT	(3 * DEVICE_MASTER_TIMEOUT)
 #define DEVICE_HOST_ADDR_MAX	255
@@ -22,7 +22,7 @@ struct Param {
 struct DeviceOps {
 	void	(*display)(const Device *dev, const char *fmt, ...)
 				__attribute__ ((format (printf, 2, 3)));
-	void	(*resched_timer)(const Device *dev, int secs);
+	void	(*timer)(const Device *dev, int msec);
 };
 
 struct Device {
@@ -40,9 +40,9 @@ struct Device {
 };
 
 
-int device_init(Device *dev, int host, int is_controller, const DeviceOps *ops);
+int device_init(Device *dev, int host, int iscontroller, const DeviceOps *ops);
 
-void device_start(Device *dev);
+void device_run(Device *dev);
 
 void device_timeout(Device *dev);
 
