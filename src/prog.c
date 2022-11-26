@@ -59,7 +59,6 @@ static void display(const Device *dev, const char *fmt, ...)
 	va_end(ap);
 }
 
-
 static void prog_init(int argc, char **argv, char **envp)
 {
 	UNUSED(argc);
@@ -77,7 +76,6 @@ static void prog_init(int argc, char **argv, char **envp)
 
 	signal(SIGPIPE, SIG_IGN);
 }
-
 
 static void prog_deinit()
 {
