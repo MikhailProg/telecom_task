@@ -133,13 +133,11 @@ static void device_drop_peers(Device *dev)
 	dev->head = NULL;
 }
 
-
 static void device_drop_peer(Device *dev, Peer *p)
 {
 	list_remove((struct list **)&dev->head, (struct list *)p);
 	peer_close(p);
 }
-
 
 static uint16_t get_u16(uint8_t *p)
 {
@@ -646,7 +644,7 @@ static int peer_rd_after_wr(Peer *p)
 
 static void
 device_connect_range(Device *dev, const Range *range, int excl,
-			void on_connect(int fd, LoopEvent event, void *opaque))
+			void (*on_connect)(int fd, LoopEvent e, void *opaque))
 {
 	int i;
 
