@@ -484,7 +484,7 @@ static void device_srv_event(int fd, LoopEvent event, void *opaque)
 	int afd = unix_accept(fd, 1);
 	if (afd < 0) {
 		if (!SOFT_ERROR) {
-			warn("sock_accept()");
+			warn("unix_accept()");
 		}
 		return;
 	}
@@ -861,6 +861,12 @@ int device_init(Device *dev, int host, int iscontroller, const DeviceOps *ops)
 		int fd = unix_listen(sock);
 		if (fd < 0) {
 			warn("unix_listen()");
+			return -1;
+		}
+
+		if (fd_nonblock(fd) < 0) {
+			warn("fd_nonblock()");
+			close(fd);
 			return -1;
 		}
 
