@@ -81,26 +81,36 @@ network can have several controllers.
 
 ## Run
 
+Host build:
+
 ```
 $ cd src
 $ make
 ```
 
-Start 5 progs with random address, the network will be self organized (terminal
-produces too many logs use watch to detect progs states):
+Docker build:
+
+```
+$ docker build -t telco .
+```
+
+
+Start 5 progs with random address and 1 controller, the network will be self
+organized (terminal produces too many logs use watch to detect progs states).
+
+Host run:
 
 ```
 $ ./run.sh
 ```
 
-
-Run a controller (address X must be different from what run.sh generated):
+Docker run:
 
 ```
-$ HOST_ADDR=X CONTROLLER= ./prog
+$ docker run -d telco
 ```
 
-Run watch to check prog states:
+Run watch to check prog states (docker progs are listed on the host):
 
 ```
 $ watch -n 1 "ps -eo pid,cmd | grep '[p]rog.*\(SLAVE\|MASTER\|CONTR\)'"
@@ -109,8 +119,8 @@ $ watch -n 1 "ps -eo pid,cmd | grep '[p]rog.*\(SLAVE\|MASTER\|CONTR\)'"
 The state of each program is outputted to cmd. This is sensors output device
 where the state, an averaged temperature and a message are printed.
 
-To test state transition kill prog, check reported states in the watch terminal.
-Then run prog with a higher address or in a controller mode the network should
-be self organized.
+To test state transition kill prog (use sudo for docker run), check reported
+states in the watch terminal. Then run prog with a higher address or in a
+controller mode the network should be self organized.
 
 

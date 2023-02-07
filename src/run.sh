@@ -3,17 +3,26 @@
 set -eu
 
 ADDRS=
+PROGS=5
 
-for i in $(seq 5); do
+rand_num()
+{
     while :; do
         # gen 0 - 255
-        ADDR=$(od -An -N1 -i /dev/random)
-        echo "${ADDRS}" | grep -qw "${ADDR}" || break
+        addr=$(od -An -N1 -i /dev/random)
+        echo "$@" | grep -qw "${addr}" || break
     done
+    echo ${addr}
+    unset addr
+}
 
+for i in $(seq ${PROGS}); do
+    ADDR=$(rand_num $ADDRS)
     ADDRS="${ADDRS} ${ADDR}"
     HOST_ADDR=${ADDR} ./prog &
 done
+
+HOST_ADDR=$(rand_num ${ADDRS}) CONTROLLER= ./prog &
 
 wait
 echo 'ALL progs stopped'
