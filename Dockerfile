@@ -1,7 +1,8 @@
 FROM alpine:latest as builder
 RUN apk add --no-cache gcc make libc-dev
 COPY src /src/
-RUN make -C /src clean && make -C /src
+WORKDIR /src
+RUN make clean && make
 
 FROM alpine:latest as runner
 WORKDIR /srv/telco
