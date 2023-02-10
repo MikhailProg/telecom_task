@@ -5,8 +5,7 @@ set -eu
 ADDRS=
 PROGS=5
 
-rand_num()
-{
+rand_num() {
     while :; do
         # gen 0 - 255
         addr=$(od -An -N1 -i /dev/random)
